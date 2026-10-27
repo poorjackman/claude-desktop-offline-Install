@@ -1,0 +1,6 @@
+pkg/*
+!pkg/.gitkeep
+log/*
+!log/.gitkeep
+release/
+*.zip
