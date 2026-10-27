@@ -33,12 +33,15 @@ Claude Desktop 的 MSIX 本身体积不大，但 Cowork 功能依赖一套 Linux
 
 ## 包含什么
 
-Releases 提供两个资产：
+Releases 提供以下资产：
 
 | 资产 | 大小 | 内容 |
 |---|---:|---|
 | `Claude.msix` | 284 MB | Claude Desktop 3.6556.2 官方安装包 |
-| `claude-runtime-3.6556.2-2.1.308.zip` | 约 1.8 GB | Claude Code + Cowork 虚拟机运行时 |
+| `claude-runtime-3.6556.2-2.1.308.zip.part01` ~ `part10` | 每个约 154 MB（合计约 1.5 GiB） | Claude Code + Cowork 虚拟机运行时，按字节切分的 10 个分卷 |
+| `SHA256SUMS.txt` | 1 KB | 各分卷与合并后的 SHA-256（可选） |
+
+分卷必须按顺序合并回 `claude-runtime-3.6556.2-2.1.308.zip` 后再解压，合并方法见「快速开始」。
 
 runtime 包内结构如下（安装脚本会按这个结构复制到数据目录）：
 
@@ -75,8 +78,24 @@ runtime/
 
 ## 快速开始
 
-1. 下载 Releases 里的两个资产。
-2. 解压到同一个目录，保证结构如下：
+1. 下载 Releases 里的 `Claude.msix` 和全部 10 个 runtime 分卷。
+2. 把 10 个分卷放在同一个文件夹，按顺序合并成 `claude-runtime-3.6556.2-2.1.308.zip`：
+
+   **Windows**（命令提示符）：
+
+   ```bat
+   copy /b claude-runtime-3.6556.2-2.1.308.zip.part01+claude-runtime-3.6556.2-2.1.308.zip.part02+claude-runtime-3.6556.2-2.1.308.zip.part03+claude-runtime-3.6556.2-2.1.308.zip.part04+claude-runtime-3.6556.2-2.1.308.zip.part05+claude-runtime-3.6556.2-2.1.308.zip.part06+claude-runtime-3.6556.2-2.1.308.zip.part07+claude-runtime-3.6556.2-2.1.308.zip.part08+claude-runtime-3.6556.2-2.1.308.zip.part09+claude-runtime-3.6556.2-2.1.308.zip.part10 claude-runtime-3.6556.2-2.1.308.zip
+   ```
+
+   **Linux / macOS / Git Bash**：
+
+   ```bash
+   cat claude-runtime-3.6556.2-2.1.308.zip.part* > claude-runtime-3.6556.2-2.1.308.zip
+   ```
+
+   合并后的大小应为 `1,614,757,792` 字节，SHA-256 应为 `17f3ed8d84d2b61169a858afba9cf1961a29be6a25d8ea5e4bb25dbcb982e7bc`。
+
+3. 把合并出的 zip 解压到项目的 `pkg` 目录，得到 `pkg\manifest.json` 和 `pkg\runtime\`；把 `Claude.msix` 放到 `pkg\Claude.msix`。最终结构如下：
 
    ```text
    claude-desktop-offline-install/
@@ -90,14 +109,14 @@ runtime/
    └── log/
    ```
 
-3. 双击 **`离线安装Claude完整桌面版.bat`**，在弹出的 UAC 提示中点「是」。
-4. 安装脚本会自动：
+4. 双击 **`离线安装Claude完整桌面版.bat`**，在弹出的 UAC 提示中点「是」。
+5. 安装脚本会自动：
    - 结束正在运行的 Claude 进程
    - 清理旧版 MSIX / 幽灵 `CoworkVMService`
    - 全用户预置安装 `Claude.msix`
    - 把 `pkg\runtime` 部署到数据目录并校验哈希
-5. **重启电脑**（MSIX 的 Servicing 状态需要重启才能完成注册）。
-6. 打开 Claude，进入 Cowork。首次启动会自动解压 `rootfs.vhdx`（约 7.3GB，通常 16–60 秒），**不再联网下载**。
+6. **重启电脑**（MSIX 的 Servicing 状态需要重启才能完成注册）。
+7. 打开 Claude，进入 Cowork。首次启动会自动解压 `rootfs.vhdx`（约 7.3GB，通常 16–60 秒），**不再联网下载**。
 
 ---
 
@@ -243,17 +262,20 @@ Claude 判断“运行时是否已就绪”靠三样东西：
 
 ### 打包发布资产
 
-Windows 10/11 自带 `tar.exe`（bsdtar），可以直接生成 zip：
+Windows 10/11 自带 `tar.exe`（bsdtar），可以直接生成 zip；再用 Git Bash / coreutils 的 `split` 切成 10 个分卷：
 
 ```powershell
-# 运行时包（runtime + manifest），约 1.8GB
+# 1) 生成 runtime zip（约 1.5 GiB）
 tar.exe -a -c -f claude-runtime-3.6556.2-2.1.308.zip -C pkg runtime manifest.json
 
-# MSIX 单独上传
+# 2) 切成 10 个分卷（在 Git Bash 中执行）
+split -b 161475780 -d -a 2 --numeric-suffixes=1 claude-runtime-3.6556.2-2.1.308.zip claude-runtime-3.6556.2-2.1.308.zip.part
+
+# 3) MSIX 单独上传
 Copy-Item pkg\Claude.msix .\Claude.msix
 ```
 
-GitHub Releases 单个文件上限约 2GB，runtime 包约 1.8GB，可以单独上传；MSIX 作为另一个资产。
+上传 `Claude.msix` + 10 个 `.part` 文件；可选再上传 `SHA256SUMS.txt`、`merge-runtime.bat`、`合并说明.md`。分卷方案同时避开了 GitHub 单文件 2GB 的限制。
 
 > `pkg` 里的文件很大，不会提交到 Git 仓库；本项目的 `.gitignore` 已忽略 `pkg/*` 与 `log/*.log`。
 
